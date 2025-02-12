@@ -1,4 +1,4 @@
-﻿#region License (GPL v2)
+#region License (GPL v2)
 /*
     BowShield
     Copyright (c) 2025 RFC1920 <desolationoutpostpve@gmail.com>
@@ -20,18 +20,41 @@
 #endregion
 using Newtonsoft.Json;
 using Oxide.Core;
+using System.Collections.Generic;
 
 namespace Oxide.Plugins
 {
-    [Info("BowShield", "RFC1920", "1.0.0")]
+    [Info("BowShield", "RFC1920", "1.0.1")]
     [Description("Enable shield for bow or jackhammer")]
     internal class BowShield : RustPlugin
     {
         private ConfigData configData;
+        private Dictionary<ulong, bool> bowShieldStatus = new();
+
+        private string Lang(string key, string id = null, params object[] args) => string.Format(lang.GetMessage(key, this, id), args);
+        protected override void LoadDefaultMessages()
+        {
+            lang.RegisterMessages(new Dictionary<string, string>
+            {
+                ["bowstatus"] = "BowShield status: {0}",
+                ["disabled"] = "BowShield disabled",
+                ["enabled"] = "BowShield enabled"
+            }, this, "en");
+        }
 
         private void OnServerInitialized()
         {
             LoadConfigVariables();
+        }
+
+        private void OnPlayerConnected(BasePlayer player)
+        {
+            bowShieldStatus.Add(player.userID, true);
+        }
+
+        private void OnPlayerDisconnected(BasePlayer player)
+        {
+            bowShieldStatus.Remove(player.userID);
         }
 
         private void DoLog(string message)
@@ -45,6 +68,20 @@ namespace Oxide.Plugins
             if (player == null) return;
             if (!player.userID.IsSteamId()) return;
 
+            if (bowShieldStatus.ContainsKey(player.userID))
+            {
+                if (!bowShieldStatus[player.userID]) return;
+            }
+            else
+            {
+                bowShieldStatus.Add((ulong)player.userID, true);
+            }
+
+            FindAndSetupShield(player, activeItem);
+        }
+
+        private void FindAndSetupShield(BasePlayer player, Item activeItem)
+        {
             string lcname = activeItem.info.displayName.english.ToLower();
             foreach (string search in configData.Options.searchItem)
             {
@@ -61,8 +98,10 @@ namespace Oxide.Plugins
                             if (bojack.ShortPrefabName.ToLower().Contains(lcname))
                             {
                                 DoLog($"Setting shield capability for {activeItem.info.displayName.english}");
-                                bojack.canBeUsedWithShield = true;
-                                modWear.blocksAiming = false;
+                                ToggleShield(bojack, modWear);
+                                SendReply(player, Lang("bowstatus", null, bowShieldStatus[player.userID]));
+                                //bojack.canBeUsedWithShield = true;
+                                //modWear.blocksAiming = false;
                                 //modWear.blocksEquipping = false;
                                 //modWear.occlusionType = 0;
 
@@ -98,6 +137,42 @@ namespace Oxide.Plugins
                 }
             }
             return false;
+        }
+
+        private void ToggleShield(HeldEntity bojack, ItemModWearable modWear, bool forceOn = false)
+        {
+            if (bojack != null && modWear != null)
+            {
+                bojack.canBeUsedWithShield = !bojack.canBeUsedWithShield | forceOn;
+                modWear.blocksAiming = !modWear.blocksAiming | !forceOn;
+                //modWear.blocksEquipping =! modWear.blocksEquipping | !forceOn;
+            }
+        }
+
+        private void OnPlayerInput(BasePlayer player, InputState input)
+        {
+            if (player == null || input == null) return;
+
+            if (input.WasJustPressed(BUTTON.FIRE_THIRD) && PlayerHasShield(player, out ItemModWearable shield))
+            {
+                if (shield != null)
+                {
+                    HeldEntity bojack = player.GetHeldEntity();
+                    if (bojack != null)
+                    {
+                        ToggleShield(bojack, shield);
+                        if (bowShieldStatus.ContainsKey(player.userID))
+                        {
+                            bowShieldStatus[player.userID] = bojack.canBeUsedWithShield;
+                        }
+                        else
+                        {
+                            bowShieldStatus.Add(player.userID, bojack.canBeUsedWithShield);
+                        }
+                        SendReply(player, Lang("bowstatus", null, bowShieldStatus[player.userID]));
+                    }
+                }
+            }
         }
 
         #region config
