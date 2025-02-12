@@ -2,6 +2,8 @@
 
 Enables holding your shield when using a bow or jackhammer.
 
+## Usage
+Middle mouse button should toggle shield usage for the currently held item.  You may need to switch to another item and back.
 
 ## Configuration
 ```
